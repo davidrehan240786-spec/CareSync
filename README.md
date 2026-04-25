@@ -126,10 +126,10 @@ CareSync solves this by providing:
 
 | Layer        | Technology            |
 |-------------|----------------------|
-| Frontend     | Next.js + Tailwind   |
+| Frontend     | React.js + Tailwind   |
 | Backend      | Supabase             |
 | Database     | PostgreSQL           |
-| AI           | OpenAI API           |
+| AI           | Gemini API           |
 | Storage      | Supabase Storage     |
 | QR           | JS QR Libraries      |
 
