@@ -260,18 +260,20 @@ export function Dashboard() {
         setReports([...data]); // Force re-render with new array copy
         
         // Update Health Overview from all reports
-        const allConditions = [...new Set(data.flatMap(r => r.conditions || []).map(c => {
-          if (typeof c === 'string') return c;
-          return c?.name || "Unknown";
-        }))];
+        const reportConditions = data.flatMap(r => normalizeData(r.conditions || [])).map(c => c.name);
+        
         const latestRisk = data.length > 0 ? data[0].risk_level : 'Low';
         
-        setHealthOverview(prev => ({
-          ...prev,
-          conditions: allConditions as any,
-          reportsCount: data.length,
-          riskLevel: latestRisk as any
-        }));
+        setHealthOverview(prev => {
+          // Merge report conditions with existing ones (from profile)
+          const mergedConditions = [...new Set([...prev.conditions, ...reportConditions])];
+          return {
+            ...prev,
+            conditions: mergedConditions.length > 0 ? mergedConditions as any : prev.conditions,
+            reportsCount: data.length,
+            riskLevel: latestRisk as any
+          };
+        });
 
         // Transform and calculate trends
         let fetchedEvents = data.map((report, idx) => {
@@ -280,7 +282,7 @@ export function Dashboard() {
             id: report.id,
             date: formatDate(report.created_at),
             created_at: report.created_at,
-            title: (typeof report.conditions?.[0] === 'string' ? report.conditions[0] : report.conditions?.[0]?.name) || "Medical Report Analysis",
+            title: safeString(report.conditions?.[0]) || "Medical Report Analysis",
             type: 'report' as const,
             desc: report.summary,
             description: report.summary, // Added for Timeline component
@@ -353,10 +355,13 @@ export function Dashboard() {
           });
 
           if (profile.chronic_diseases || profile.allergies) {
+             const profileConditions = profile.chronic_diseases ? (Array.isArray(profile.chronic_diseases) ? profile.chronic_diseases : profile.chronic_diseases.split(',').map((s: any) => s.trim())) : [];
+             const profileAllergies = profile.allergies ? (Array.isArray(profile.allergies) ? profile.allergies : profile.allergies.split(',').map((s: any) => s.trim())) : [];
+             
              setHealthOverview(prev => ({
                ...prev,
-               conditions: profile.chronic_diseases ? (Array.isArray(profile.chronic_diseases) ? profile.chronic_diseases : profile.chronic_diseases.split(',').map((s: any) => s.trim())) : prev.conditions,
-               allergies: profile.allergies ? (Array.isArray(profile.allergies) ? profile.allergies : profile.allergies.split(',').map((s: any) => s.trim())) : prev.allergies,
+               conditions: profileConditions.length > 0 ? profileConditions : prev.conditions,
+               allergies: profileAllergies.length > 0 ? profileAllergies : prev.allergies,
              }));
           }
 
@@ -528,8 +533,16 @@ When to Seek Help:
 
 If the response is not in the exact format above, it is invalid.`;
 
+      const healthContext = `
+        Patient: ${patientData?.name}
+        Age: ${patientData?.dob ? getAge(patientData.dob) : patientData?.age}
+        Conditions: ${healthOverview.conditions.join(', ')}
+        Allergies: ${healthOverview.allergies.join(', ')}
+        Recent Risk Level: ${healthOverview.riskLevel}
+      `.trim();
+
       const combinedPrompt = `${systemPrompt}\n\nUser Query:\n${userMsg}`;
-      const response = await getAIResponse(combinedPrompt);
+      const response = await getAIResponse(combinedPrompt, healthContext);
       
       // Simulate realistic typing delay
       setTimeout(() => {
@@ -620,16 +633,29 @@ If the response is not in the exact format above, it is invalid.`;
         riskLevel: analysis.risk_level
       }));
 
-      const newEvents = analysis.dates.map((date: any) => ({
-        date: safeDate(date),
+      // 4. Update state and timeline
+      const newReportEvent = {
+        date: safeDate(analysis.dates?.[0] || new Date().toISOString()),
         created_at: new Date().toISOString(),
-        title: (typeof analysis.conditions[0] === 'string' ? analysis.conditions[0] : analysis.conditions[0]?.name) || "Health Checkup",
+        title: file.name,
         type: 'report' as const,
         desc: analysis.summary,
         status: 'completed' as const,
         reportData: analysis
+      };
+
+      // Add granular events from AI extraction
+      const granularEvents = (analysis.events || []).map((e: any) => ({
+        date: safeDate(e.date || new Date().toISOString()),
+        created_at: new Date().toISOString(),
+        title: e.title || e.type,
+        type: (e.type?.toLowerCase() === 'prescription' ? 'prescription' : e.type?.toLowerCase() === 'test' ? 'test' : 'report') as any,
+        desc: e.desc,
+        status: 'completed' as const
       }));
-      setTimelineEvents(prev => [...newEvents, ...prev]);
+
+      const allNewEvents = [newReportEvent, ...granularEvents];
+      setTimelineEvents(prev => [...allNewEvents, ...prev]);
 
       // Step 5: Supabase Insert Fix (JSONB Safe)
       if (patientData) {
@@ -826,23 +852,28 @@ If the response is not in the exact format above, it is invalid.`;
                         {/* Top Stats Row */}
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                           {[
-                            { label: 'Conditions Detected', value: healthOverview.conditions.length.toString(), trend: 'Updated', icon: Activity, color: 'text-amber-600' },
-                            { label: 'Active Allergies', value: healthOverview.allergies.length.toString(), trend: 'Verified', icon: Shield, color: 'text-rose-600' },
-                            { label: 'Reports Analyzed', value: healthOverview.reportsCount.toString(), trend: '+2', icon: FileText, color: 'text-blue-600' },
-                            { label: 'Risk Level', value: healthOverview.riskLevel, trend: 'Calculated', icon: AlertCircle, color: healthOverview.riskLevel === 'High' ? 'text-rose-600' : 'text-emerald-600' },
+                            { label: 'Conditions Detected', value: healthOverview.conditions.length.toString(), trend: 'Updated', icon: Activity, color: 'text-amber-600', bg: 'bg-amber-50' },
+                            { label: 'Active Allergies', value: healthOverview.allergies.length.toString(), trend: 'Verified', icon: Shield, color: 'text-rose-600', bg: 'bg-rose-50' },
+                            { label: 'Reports Analyzed', value: healthOverview.reportsCount.toString(), trend: '+2', icon: FileText, color: 'text-blue-600', bg: 'bg-blue-50' },
+                            { label: 'Risk Level', value: healthOverview.riskLevel, trend: 'Calculated', icon: AlertCircle, color: healthOverview.riskLevel === 'High' ? 'text-rose-600' : 'text-emerald-600', bg: healthOverview.riskLevel === 'High' ? 'bg-rose-50' : 'bg-emerald-50' },
                           ].map((stat, i) => (
-                            <div key={i}>
-                              <Card className="p-6 border-none shadow-sm bg-white">
-                                <div className="flex items-center justify-between mb-4">
-                                  <div className={`p-3 rounded-xl bg-gray-50 ${stat.color}`}>
+                            <motion.div 
+                              key={i}
+                              whileHover={{ y: -5, scale: 1.02 }}
+                              transition={{ type: "spring", stiffness: 400, damping: 10 }}
+                            >
+                              <Card className="p-6 border-none shadow-sm bg-white overflow-hidden relative group">
+                                <div className={`absolute top-0 right-0 w-24 h-24 ${stat.bg} rounded-full -mr-12 -mt-12 opacity-50 group-hover:scale-150 transition-transform duration-500`} />
+                                <div className="flex items-center justify-between mb-4 relative z-10">
+                                  <div className={`p-3 rounded-xl ${stat.bg} ${stat.color}`}>
                                     <stat.icon size={20} />
                                   </div>
                                   <span className="text-[10px] font-black text-gray-400 bg-gray-50 px-2 py-1 rounded-full">{stat.trend}</span>
                                 </div>
-                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">{stat.label}</p>
-                                <h4 className="text-2xl font-black tracking-tight">{stat.value}</h4>
+                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 relative z-10">{stat.label}</p>
+                                <h4 className="text-2xl font-black tracking-tight relative z-10">{stat.value}</h4>
                               </Card>
-                            </div>
+                            </motion.div>
                           ))}
                         </div>
 
@@ -863,29 +894,66 @@ If the response is not in the exact format above, it is invalid.`;
                                        <BrainCircuit className="text-blue-600" size={18} />
                                        <h5 className="text-xs font-black uppercase tracking-widest text-blue-900">Latest Insights</h5>
                                     </div>
-                                    <p className="text-sm font-medium text-blue-900/70 leading-relaxed italic">
+                                    <p className="text-sm font-medium text-blue-900/70 leading-relaxed">
                                        {healthOverview.reportsCount > 0 
-                                         ? `Based on your ${healthOverview.reportsCount} medical reports, your clinical profile is now being tracked. Click on reports in the timeline for detailed insights.`
+                                         ? (reports[0]?.summary || `Based on your ${healthOverview.reportsCount} medical reports, your clinical profile is now being tracked. Click on reports in the timeline for detailed insights.`)
                                          : "Upload your medical reports in the 'Report Analyzer' tab to generate AI-driven clinical insights and track your health progression."}
                                     </p>
-                                 </div>
-
-                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div className="p-4 bg-gray-50/50 rounded-2xl border border-gray-100">
-                                       <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Detected Conditions</p>
-                                       <div className="flex flex-wrap gap-2">
-                                          {(healthOverview.conditions || []).map((c, i) => <Badge key={i} variant="warning">{safeString(c)}</Badge>)}
-                                       </div>
-                                    </div>
-                                    <div className="p-4 bg-gray-50/50 rounded-2xl border border-gray-100">
-                                       <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Known Allergies</p>
-                                       <div className="flex flex-wrap gap-2">
-                                          {(healthOverview.allergies || []).map((a, i) => <Badge key={i} variant="danger">{safeString(a)}</Badge>)}
-                                       </div>
-                                    </div>
+                                    <div className="p-4 bg-gray-50/50 rounded-2xl border border-gray-100 mt-6">
+                                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Detected Conditions</p>
+                                        <div className="flex flex-wrap gap-2">
+                                           {healthOverview.conditions.length > 0 
+                                             ? healthOverview.conditions.map((c, i) => <Badge key={i} variant="warning">{safeString(c)}</Badge>)
+                                             : <span className="text-[10px] text-gray-400 font-bold uppercase">No clinical conditions found</span>}
+                                        </div>
+                                     </div>
+                                     <div className="p-4 bg-gray-50/50 rounded-2xl border border-gray-100 mt-4">
+                                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Known Allergies</p>
+                                        <div className="flex flex-wrap gap-2">
+                                           {healthOverview.allergies.length > 0 
+                                             ? healthOverview.allergies.map((a, i) => <Badge key={i} variant="danger">{safeString(a)}</Badge>)
+                                             : <span className="text-[10px] text-gray-400 font-bold uppercase">No known allergies</span>}
+                                        </div>
+                                     </div>
                                  </div>
                               </div>
                             </Card>
+                            
+                            {/* NEW: Key Highlights Card */}
+                            {healthOverview.reportsCount > 0 && (
+                              <Card className="p-8 mt-6 bg-gradient-to-br from-gray-900 to-black text-white border-none shadow-2xl shadow-black/20 overflow-hidden relative">
+                                <div className="absolute top-0 right-0 p-8 opacity-20">
+                                  <Zap size={100} className="text-amber-400" />
+                                </div>
+                                <div className="relative z-10 space-y-6">
+                                  <div className="flex items-center gap-3">
+                                    <div className="p-2 bg-amber-400/20 rounded-lg">
+                                      <Star className="text-amber-400" size={18} fill="currentColor" />
+                                    </div>
+                                    <h3 className="text-xl font-black tracking-tight">Critical Insights</h3>
+                                  </div>
+                                  
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                    <div className="space-y-2">
+                                      <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Major Clinical Finding</p>
+                                      <p className="text-lg font-bold leading-tight">
+                                        {healthOverview.conditions.length > 0 
+                                          ? `Observation of ${healthOverview.conditions[0]} as a primary clinical marker.`
+                                          : "No critical abnormalities detected in analyzed reports."}
+                                      </p>
+                                    </div>
+                                    <div className="space-y-2">
+                                      <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Next Recommended Step</p>
+                                      <p className="text-lg font-bold leading-tight text-amber-400">
+                                        {healthOverview.riskLevel === 'High' 
+                                          ? "Urgent: Schedule a specialist consultation to review recent findings."
+                                          : "Action: Routine follow-up in 3 months for continued monitoring."}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </div>
+                              </Card>
+                            )}
                           </div>
 
                           <div className="lg:col-span-4">
@@ -1125,17 +1193,27 @@ If the response is not in the exact format above, it is invalid.`;
                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 border-t border-gray-100">
                                     <div className="space-y-4">
                                       <h5 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Extracted Conditions</h5>
-                                      <div className="flex flex-wrap gap-2">
+                                      <div className="grid grid-cols-1 gap-3 w-full">
                                         {normalizeData(selectedTimelineReport.conditions).map((c: any, i: number) => (
-                                          <Badge key={i} variant="warning">{c.name}</Badge>
+                                          <div key={i} className="p-3 bg-amber-50/50 rounded-xl border border-amber-100/50">
+                                            <div className="flex items-center gap-2 text-sm font-bold text-amber-900">
+                                              <Activity size={14} className="text-amber-500" /> {c.name}
+                                            </div>
+                                            {c.evidence && <p className="text-[10px] text-amber-600 font-medium leading-relaxed italic mt-1 ml-6">↳ {c.evidence}</p>}
+                                          </div>
                                         ))}
                                       </div>
                                     </div>
                                     <div className="space-y-4">
                                       <h5 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Medications</h5>
-                                      <div className="flex flex-wrap gap-2">
+                                      <div className="grid grid-cols-1 gap-3 w-full">
                                         {normalizeData(selectedTimelineReport.medications).map((m: any, i: number) => (
-                                          <Badge key={i} variant="neutral">{m.name}</Badge>
+                                          <div key={i} className="p-3 bg-rose-50/50 rounded-xl border border-rose-100/50">
+                                            <div className="flex items-center gap-2 text-sm font-bold text-rose-900">
+                                              <Heart size={14} className="text-rose-500" /> {m.name}
+                                            </div>
+                                            {m.evidence && <p className="text-[10px] text-rose-600 font-medium leading-relaxed italic mt-1 ml-6">↳ {m.evidence}</p>}
+                                          </div>
                                         ))}
                                       </div>
                                     </div>
@@ -1303,10 +1381,22 @@ If the response is not in the exact format above, it is invalid.`;
                                            </Badge>
                                          </div>
                                          <div className="space-y-2">
-                                           <h4 className="text-3xl font-black tracking-tight text-gray-900">{scoredPlans[0].name}</h4>
-                                           <p className="text-sm font-medium text-gray-500 max-w-xl">
-                                             {getReason(scoredPlans[0])}
-                                           </p>
+                                           <p className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mb-1">Personalized Proposal</p>
+                                           <h4 className="text-3xl font-black tracking-tight text-gray-900">Recommended: {scoredPlans[0].name}</h4>
+                                           <div className="flex items-center gap-2 mt-1 mb-4">
+                                             <Badge variant={userRisk === 'High' ? 'danger' : userRisk === 'Medium' ? 'warning' : 'success'}>
+                                               Risk Level: {userRisk}
+                                             </Badge>
+                                             <span className="text-xs font-bold text-gray-400 italic">
+                                               ({userConditions.length > 0 ? `due to ${userConditions[0].name}` : "standard actuarial risk"})
+                                             </span>
+                                           </div>
+                                           <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100/50 mt-2">
+                                             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">AI Reasoning</p>
+                                             <p className="text-sm font-medium text-gray-600 leading-relaxed">
+                                               {getReason(scoredPlans[0])}
+                                             </p>
+                                           </div>
                                          </div>
                                          <div className="flex items-center gap-8">
                                            <div>
@@ -1949,11 +2039,19 @@ export function UsersIcon({ size }: { size: number }) {
 const normalizeData = (arr: any[]) => {
   if (!Array.isArray(arr)) return [];
   return arr.map(item => {
-    if (typeof item === 'string') return { name: item, evidence: "" };
-    if (item && typeof item === 'object') {
+    let parsed = item;
+    if (typeof item === 'string') {
+      try {
+        parsed = JSON.parse(item);
+      } catch (e) {
+        return { name: item, evidence: "" };
+      }
+    }
+    
+    if (parsed && typeof parsed === 'object') {
        return { 
-         name: item.name || item.title || "Unknown", 
-         evidence: item.evidence || item.desc || "" 
+         name: parsed.name || parsed.title || parsed.condition || "Unknown", 
+         evidence: parsed.evidence || parsed.desc || parsed.reason || "" 
        };
     }
     return { name: String(item), evidence: "" };
@@ -1961,8 +2059,16 @@ const normalizeData = (arr: any[]) => {
 };
 
 const safeString = (item: any): string => {
-  if (typeof item === 'string') return item;
-  if (item && typeof item === 'object') return item.name || item.title || "Unknown";
+  if (!item) return "Unknown";
+  let parsed = item;
+  if (typeof item === 'string') {
+    try {
+      parsed = JSON.parse(item);
+    } catch (e) {
+      return item;
+    }
+  }
+  if (parsed && typeof parsed === 'object') return parsed.name || parsed.title || parsed.condition || "Unknown";
   return String(item);
 };
 
