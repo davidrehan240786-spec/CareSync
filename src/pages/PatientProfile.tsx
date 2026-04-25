@@ -62,11 +62,23 @@ const PatientProfile = () => {
 
   const normalize = (arr: any) => {
     if (!Array.isArray(arr)) return [];
-    return arr.map(item =>
-      typeof item === 'string'
-        ? { name: item, evidence: '' }
-        : item
-    );
+    return arr.map(item => {
+      if (typeof item === 'string') {
+        try {
+          const parsed = JSON.parse(item);
+          if (typeof parsed === 'object' && parsed !== null) {
+            return { name: parsed.name || parsed.condition || item, evidence: parsed.evidence || '' };
+          }
+          return { name: item, evidence: '' };
+        } catch {
+          return { name: item, evidence: '' };
+        }
+      }
+      if (typeof item === 'object' && item !== null) {
+        return { name: item.name || item.condition || 'Unknown', evidence: item.evidence || '' };
+      }
+      return { name: String(item), evidence: '' };
+    });
   };
 
   if (loading) {

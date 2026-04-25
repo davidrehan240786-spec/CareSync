@@ -1889,113 +1889,30 @@ If the response is not in the exact format above, it is invalid.`;
                                   <h4 className="text-xs font-black uppercase tracking-[0.2em] text-gray-900">Digital Health ID</h4>
                                 </div>
                                 
-                                {(() => {
-                                  const latestReport = reports[0];
-
-                                  // Clean conditions: parse stringified JSON, extract name strings
-                                  const cleanConditions = (latestReport?.conditions || []).slice(0, 3).map((c: any) => {
-                                    if (typeof c === 'string') {
-                                      try {
-                                        const parsed = JSON.parse(c);
-                                        return parsed.name || parsed.condition || c;
-                                      } catch {
-                                        return c;
-                                      }
-                                    }
-                                    return c?.name || c?.condition || String(c);
-                                  });
-
-                                  // Clean medications: parse stringified JSON, extract name strings
-                                  const cleanMedications = (latestReport?.medications || []).slice(0, 3).map((m: any) => {
-                                    if (typeof m === 'string') {
-                                      try {
-                                        const parsed = JSON.parse(m);
-                                        return parsed.name || parsed.title || m;
-                                      } catch {
-                                        return m;
-                                      }
-                                    }
-                                    return m?.name || m?.title || String(m);
-                                  });
-
-                                  // Clean allergies: normalize from array or comma-separated string
-                                  const cleanAllergies = Array.isArray(patientData?.allergies)
-                                    ? patientData.allergies.slice(0, 3).map((a: any) => typeof a === 'string' ? a.trim() : String(a))
-                                    : typeof patientData?.allergies === 'string' && patientData.allergies.length > 0
-                                      ? patientData.allergies.split(',').map((a: string) => a.trim()).slice(0, 3)
-                                      : ["None"];
-
-                                  const qrData = {
-                                    type: "CareSyncProfile",
-                                    version: "1.0",
-                                    id: patientData?.id,
-                                    basic_info: {
-                                      name: patientData?.name || "Unknown",
-                                      age: patientData?.dob ? getAge(patientData.dob) : patientData?.age || "N/A",
-                                      gender: patientData?.gender || "N/A",
-                                      blood_group: patientData?.blood_group || "N/A"
-                                    },
-                                    medical_summary: {
-                                      risk_level: latestReport?.risk_level || "Unknown",
-                                      conditions: cleanConditions,
-                                      medications: cleanMedications,
-                                      allergies: cleanAllergies
-                                    },
-                                    emergency: {
-                                      contact_name: patientData?.emergency_contact_name || "N/A",
-                                      phone: patientData?.emergency_contact_phone || "N/A"
-                                    },
-                                    meta: {
-                                      last_updated: new Date().toISOString().split("T")[0],
-                                      source: "CareSync AI"
-                                    },
-                                    access: {
-                                      profile_url: profileUrl
-                                    }
-                                  };
-
-                                  return (
-                                    <div className="flex flex-col items-center">
-                                      <div className="p-4 bg-white rounded-3xl border border-gray-100 shadow-inner mb-4 relative group inline-block mx-auto">
-                                        <QRCodeSVG 
-                                          value={qrFormat === 'json' ? JSON.stringify(qrData) : profileUrl} 
-                                          size={160}
-                                          includeMargin={false}
-                                          level="M"
-                                        />
-                                        <div className="absolute inset-0 bg-blue-600/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-3xl flex items-center justify-center">
-                                          <QrCode className="text-blue-600" size={24} />
-                                        </div>
-                                      </div>
-
-                                      <div className="flex bg-gray-50 p-1 rounded-xl mb-6">
-                                        <button 
-                                          onClick={() => setQrFormat('url')}
-                                          className={cn(
-                                            "px-3 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest transition-all",
-                                            qrFormat === 'url' ? "bg-white text-blue-600 shadow-sm" : "text-gray-400 hover:text-gray-600"
-                                          )}
-                                        >
-                                          Demo URL
-                                        </button>
-                                        <button 
-                                          onClick={() => setQrFormat('json')}
-                                          className={cn(
-                                            "px-3 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest transition-all",
-                                            qrFormat === 'json' ? "bg-white text-blue-600 shadow-sm" : "text-gray-400 hover:text-gray-600"
-                                          )}
-                                        >
-                                          System JSON
-                                        </button>
-                                      </div>
-
-                                      <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest text-center leading-relaxed">
-                                        SCAN FOR EMERGENCY ACCESS<br />
-                                        <span className="text-blue-600">CARESYNC IDENTITY PROTOCOL</span>
-                                      </p>
+                                
+                                <div className="flex flex-col items-center">
+                                  <div className="p-4 bg-white rounded-3xl border border-gray-100 shadow-inner mb-4 relative group inline-block mx-auto">
+                                    <QRCodeSVG 
+                                      value={profileUrl} 
+                                      size={160}
+                                      includeMargin={false}
+                                      level="M"
+                                    />
+                                    <div className="absolute inset-0 bg-blue-600/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-3xl flex items-center justify-center">
+                                      <QrCode className="text-blue-600" size={24} />
                                     </div>
-                                  );
-                                })()}
+                                  </div>
+
+                                  <div className="px-3 py-1.5 bg-emerald-50 rounded-xl mb-4 flex items-center gap-2 border border-emerald-100">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                    <span className="text-[8px] font-black uppercase tracking-widest text-emerald-700">Live Profile Link</span>
+                                  </div>
+
+                                  <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest text-center leading-relaxed">
+                                    SCAN FOR EMERGENCY ACCESS<br />
+                                    <span className="text-blue-600">CARESYNC IDENTITY PROTOCOL</span>
+                                  </p>
+                                </div>
                               </Card>
                             </div>
                           </div>
