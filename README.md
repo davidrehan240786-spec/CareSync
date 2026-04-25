@@ -162,14 +162,6 @@ CareSync solves this by providing:
 - Insurance suggestion relevance  
 - User flow completion  
 
----
-
-## ⚠️ Constraints
-
-- ⏱ Limited build time  
-- Basic AI implementation  
-- No real insurance integration  
-- Demo-level accuracy  
 
 ---
 
