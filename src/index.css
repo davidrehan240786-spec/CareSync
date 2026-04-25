@@ -1,0 +1,118 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  
+  --color-background: #FFFFFF;
+  --color-foreground: #09090b;
+  --color-primary: #18181b;
+  --color-primary-foreground: #fafafa;
+  --color-muted: #f4f4f5;
+  --color-muted-foreground: #71717a;
+  --color-border: #e4e4e7;
+  
+  --shadow-soft: 0 4px 20px rgba(0, 0, 0, 0.05);
+  --shadow-hover: 0 10px 30px rgba(0, 0, 0, 0.08);
+  --shadow-cal: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-cal-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 24px;
+}
+
+@import "tw-animate-css";
+
+@theme inline {
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --animate-glow-slow: glow 2.5s ease-in-out infinite;
+  --animate-bounce-drop: bounceDrop 0.8s ease;
+
+  @keyframes glow {
+    0% {
+      box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
+    }
+    50% {
+      box-shadow: 0 0 16px rgba(59, 130, 246, 0.8);
+    }
+  }
+
+  @keyframes bounceDrop {
+    0% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-10px);
+    }
+    100% {
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes shine-pulse {
+    0% {
+      background-position: 0% 0%;
+    }
+    50% {
+      background-position: 100% 100%;
+    }
+    100% {
+      background-position: 0% 0%;
+    }
+  }
+}
+
+:root {
+  --success: oklch(0.70 0.15 145);
+  --success-foreground: oklch(0.98 0 0);
+  --warning: oklch(0.75 0.12 85);
+  --warning-foreground: oklch(0.15 0 0);
+}
+
+.dark {
+  --success: oklch(0.65 0.18 150);
+  --success-foreground: oklch(0.98 0 0);
+  --warning: oklch(0.80 0.15 90);
+  --warning-foreground: oklch(0.15 0 0);
+}
+
+
+@keyframes gradient-x {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+}
+
+@layer utilities {
+  .btn-primary {
+    @apply bg-black text-white px-8 py-4 rounded-xl font-medium transition-all duration-300 shadow-soft hover:scale-[1.03] hover:shadow-hover active:scale-[0.98];
+  }
+  .cal-card {
+    @apply bg-white rounded-2xl shadow-cal border border-border overflow-hidden;
+  }
+  .cal-badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 border border-gray-200;
+  }
+  .cal-button-primary {
+    @apply bg-black text-white px-6 py-3 rounded-lg font-semibold hover:bg-gray-800 transition-colors;
+  }
+  .cal-button-secondary {
+    @apply bg-white text-black border border-border px-6 py-3 rounded-lg font-semibold hover:bg-gray-50 transition-colors;
+  }
+}
