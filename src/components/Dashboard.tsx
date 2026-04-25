@@ -201,6 +201,30 @@ export function Dashboard() {
   const [analysisResult, setAnalysisResult] = useState<any | null>(null);
   const [selectedTimelineReport, setSelectedTimelineReport] = useState<any | null>(null);
   const [qrFormat, setQrFormat] = useState<'json' | 'url'>('url');
+  
+  // Insurance Marketplace State
+  const [shuffledPlans, setShuffledPlans] = useState<any[]>([]);
+  const [selectedPlan, setSelectedPlan] = useState<any | null>(null);
+  const [isAutoRotating, setIsAutoRotating] = useState(true);
+  const [isMarketplaceLoading, setIsMarketplaceLoading] = useState(false);
+  const [detailedPlan, setDetailedPlan] = useState<any | null>(null);
+
+  // Settings State
+  const [settingsForm, setSettingsForm] = useState({
+    full_name: '',
+    phone_number: '',
+    address: '',
+    emergency_contact_name: '',
+    emergency_contact_phone: '',
+    blood_group: '',
+    allergies: '',
+    chronic_diseases: '',
+  });
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
+  const [encryptionEnabled, setEncryptionEnabled] = useState(true);
+  
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -231,6 +255,56 @@ export function Dashboard() {
     if (curr < prev) return 'down';
     return 'stable';
   };
+
+  const shuffleArray = <T,>(array: T[]): T[] => {
+    const shuffled = [...array];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+  };
+
+  // Shuffle plans on initial load or tab switch
+  useEffect(() => {
+    if (activeTab === 'insurance' && shuffledPlans.length === 0) {
+      setIsMarketplaceLoading(true);
+      const timer = setTimeout(() => {
+        const shuffled = shuffleArray(insurancePlans);
+        setShuffledPlans(shuffled);
+        
+        // Initial AI Recommendation logic (Step 7)
+        const userRisk = reports[0]?.risk_level || "Low";
+        const matched = shuffled.find(p => p.risk_supported.includes(userRisk)) || shuffled[0];
+        setSelectedPlan(matched);
+        setIsMarketplaceLoading(false);
+      }, 1500); // Step 8: Realistic delay
+      return () => clearTimeout(timer);
+    }
+  }, [activeTab, reports, shuffledPlans.length]);
+
+  // Auto-rotation effect (Step 2)
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isAutoRotating && shuffledPlans.length > 0 && activeTab === 'insurance' && !detailedPlan) {
+      interval = setInterval(() => {
+        setSelectedPlan(prev => {
+          if (!prev) return shuffledPlans[0];
+          const filtered = shuffledPlans.filter(plan => {
+             const userAge = getAge(patientData?.dob);
+             if (plan.min_age && userAge < plan.min_age) return false;
+             if (plan.max_age && userAge > plan.max_age) return false;
+             return true;
+          });
+          if (filtered.length === 0) return prev;
+          const currentIndex = filtered.findIndex(p => p.id === prev.id);
+          const nextIndex = (currentIndex + 1) % filtered.length;
+          return filtered[nextIndex];
+        });
+      }, 8000);
+    }
+    return () => clearInterval(interval);
+  }, [isAutoRotating, shuffledPlans, activeTab, detailedPlan, patientData?.dob]);
 
   const fetchReports = async (userId: string) => {
     // Step 10: Ensure User Exists
@@ -761,16 +835,6 @@ If the response is not in the exact format above, it is invalid.`;
               ))}
             </nav>
 
-            {!isSidebarCollapsed && (
-              <div className="p-8">
-                <Card className="p-6 bg-gray-50 border-none">
-                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">Patient Support</p>
-                  <Button variant="outline" className="w-full text-[10px] h-10 font-black rounded-xl border-gray-200">
-                    GET HELP
-                  </Button>
-                </Card>
-              </div>
-            )}
 
             <div className="p-6 border-t border-gray-50 mt-auto">
               <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3'} px-2 py-1`}>
@@ -1269,7 +1333,14 @@ If the response is not in the exact format above, it is invalid.`;
                           </div>
                         </div>
 
-                        {/* Matching Engine Logic */}
+                        {isMarketplaceLoading ? (
+                          <div className="py-20 flex flex-col items-center justify-center space-y-4">
+                            <div className="w-16 h-16 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin" />
+                            <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest animate-pulse">AI Analyzing health profile & matching plans...</p>
+                          </div>
+                        ) : (
+                          <>
+                            {/* Matching Engine Logic */}
                         {(() => {
                            const latestReport = reports[0];
                            const userRisk = latestReport?.risk_level || "Low";
@@ -1284,7 +1355,7 @@ If the response is not in the exact format above, it is invalid.`;
                              heart: /heart|cardiac|bp|blood pressure|hypertension/i.test(reportSummary)
                            };
                            
-                           const eligiblePlans = insurancePlans.filter(plan => {
+                           const eligiblePlans = shuffledPlans.filter(plan => {
                              if (plan.min_age && userAge < plan.min_age) return false;
                              if (plan.max_age && userAge > plan.max_age) return false;
                              return true;
@@ -1360,68 +1431,74 @@ If the response is not in the exact format above, it is invalid.`;
                              return { text: "Standard", class: "bg-gray-400" };
                            };
 
-                           return (
-                             <div className="space-y-8">
-                               {/* Featured Best Plan */}
-                               {scoredPlans.length > 0 && insuranceFilter === 'All' && (
-                                 <motion.div
-                                   initial={{ opacity: 0, y: 20 }}
-                                   animate={{ opacity: 1, y: 0 }}
-                                   className="relative p-1 rounded-[3rem] bg-gradient-to-br from-emerald-400 via-emerald-500 to-blue-600 shadow-2xl shadow-emerald-500/20 mb-12"
-                                 >
+                               const currentFeatured = selectedPlan && scoredPlans.find(p => p.id === selectedPlan.id) ? selectedPlan : scoredPlans[0];
+
+                               return (
+                                 <div className="space-y-8">
+                                   {/* Featured Best Plan */}
+                                   {currentFeatured && insuranceFilter === 'All' && (
+                                     <motion.div
+                                       key={currentFeatured.id}
+                                       initial={{ opacity: 0, x: 20 }}
+                                       animate={{ opacity: 1, x: 0 }}
+                                       className="relative p-1 rounded-[3rem] bg-gradient-to-br from-emerald-400 via-emerald-500 to-blue-600 shadow-2xl shadow-emerald-500/20 mb-12"
+                                     >
                                    <div className="bg-white rounded-[2.8rem] p-10">
                                      <div className="flex flex-col md:flex-row items-center justify-between gap-8">
-                                       <div className="space-y-6 flex-1">
-                                         <div className="flex items-center gap-3">
-                                           <div className="px-4 py-1.5 bg-emerald-500 text-white rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
-                                             <Zap size={12} fill="white" /> AI Top Recommendation
-                                           </div>
-                                           <Badge variant="success" className="bg-emerald-50 text-emerald-600 border-emerald-100">
-                                             {getLabel(scoredPlans[0].score).text}
-                                           </Badge>
-                                         </div>
-                                         <div className="space-y-2">
-                                           <p className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mb-1">Personalized Proposal</p>
-                                           <h4 className="text-3xl font-black tracking-tight text-gray-900">Recommended: {scoredPlans[0].name}</h4>
-                                           <div className="flex items-center gap-2 mt-1 mb-4">
-                                             <Badge variant={userRisk === 'High' ? 'danger' : userRisk === 'Medium' ? 'warning' : 'success'}>
-                                               Risk Level: {userRisk}
+                                         <div className="space-y-6 flex-1">
+                                           <div className="flex items-center gap-3">
+                                             <div className="px-4 py-1.5 bg-emerald-500 text-white rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
+                                               <Zap size={12} fill="white" className={isAutoRotating ? "animate-pulse" : ""} /> {isAutoRotating ? "AI Rotating Selection" : "AI Top Recommendation"}
+                                             </div>
+                                             <Badge variant="success" className="bg-emerald-50 text-emerald-600 border-emerald-100">
+                                               {getLabel(currentFeatured.score || 0).text}
                                              </Badge>
-                                             <span className="text-xs font-bold text-gray-400 italic">
-                                               ({userConditions.length > 0 ? `due to ${userConditions[0].name}` : "standard actuarial risk"})
-                                             </span>
                                            </div>
-                                           <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100/50 mt-2">
-                                             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">AI Reasoning</p>
-                                             <p className="text-sm font-medium text-gray-600 leading-relaxed">
-                                               {getReason(scoredPlans[0])}
-                                             </p>
+                                           <div className="space-y-2">
+                                             <p className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mb-1">Personalized Proposal</p>
+                                             <h4 className="text-3xl font-black tracking-tight text-gray-900">Recommended: {currentFeatured.name}</h4>
+                                             <div className="flex items-center gap-2 mt-1 mb-4">
+                                               <Badge variant={userRisk === 'High' ? 'danger' : userRisk === 'Medium' ? 'warning' : 'success'}>
+                                                 Risk Level: {userRisk}
+                                               </Badge>
+                                               <span className="text-xs font-bold text-gray-400 italic">
+                                                 ({userConditions.length > 0 ? `due to ${userConditions[0].name}` : "standard actuarial risk"})
+                                               </span>
+                                             </div>
+                                             <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100/50 mt-2">
+                                               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">AI Reasoning</p>
+                                               <p className="text-sm font-medium text-gray-600 leading-relaxed">
+                                                 {getReason(currentFeatured)}
+                                               </p>
+                                             </div>
+                                           </div>
+                                           <div className="flex flex-wrap gap-4 pt-2">
+                                             <Button 
+                                               variant="secondary" 
+                                               className="px-8 bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200"
+                                               onClick={() => setDetailedPlan(currentFeatured)}
+                                             >
+                                                View Plan Details
+                                             </Button>
+                                             <Button variant="outline" className="px-8 border-gray-200 hover:border-blue-600 hover:text-blue-600 transition-colors">Compare Plans</Button>
                                            </div>
                                          </div>
-                                         <div className="flex items-center gap-8">
-                                           <div>
-                                             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Premium</p>
-                                             <p className="text-2xl font-black text-emerald-600">{adjustedPremium(scoredPlans[0].price, userRisk)}</p>
-                                             <p className="text-[10px] font-bold text-gray-400 mt-1">{riskMessage(userRisk)}</p>
+                                         <div className="w-full md:w-64 space-y-6">
+                                           <div className="p-6 bg-blue-50/50 rounded-3xl border border-blue-100 text-center">
+                                             <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-1">Monthly Premium</p>
+                                             <div className="text-3xl font-black text-blue-900">{adjustedPremium(currentFeatured.price, userRisk)}</div>
+                                             <p className="text-[10px] font-bold text-blue-400 mt-1">*Tax inclusive</p>
                                            </div>
-                                           <div>
-                                             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Claim Ratio</p>
-                                             <p className="text-2xl font-black text-gray-900">{scoredPlans[0].claim_ratio}</p>
-                                           </div>
-                                           <div>
-                                             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Match Confidence</p>
-                                             <div className="flex items-center gap-2">
-                                               <p className="text-2xl font-black text-blue-600">{Math.min(100, Math.round(scoredPlans[0].score * 10))}%</p>
+                                           <div className="space-y-3">
+                                             <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-gray-400">
+                                               <span>Claim Settlement</span>
+                                               <span className="text-emerald-600">{currentFeatured.claim_ratio}</span>
+                                             </div>
+                                             <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                               <div className="h-full bg-emerald-500 rounded-full" style={{ width: currentFeatured.claim_ratio }} />
                                              </div>
                                            </div>
                                          </div>
-                                       </div>
-                                       <div className="w-full md:w-auto text-right">
-                                          <Button className="w-full md:w-64 h-20 rounded-3xl bg-black text-white hover:bg-gray-900 text-sm font-black uppercase tracking-widest shadow-2xl shadow-black/20 group">
-                                            SECURE NOW
-                                            <ChevronRight size={18} className="ml-2 group-hover:translate-x-1 transition-transform" />
-                                          </Button>
-                                       </div>
                                      </div>
                                      
                                      {/* Coverage Gaps (Trust Factor) */}
@@ -1439,29 +1516,45 @@ If the response is not in the exact format above, it is invalid.`;
                                      )}
                                    </div>
                                  </motion.div>
-                               )}
-
-                               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                                 {scoredPlans.map((plan, idx) => (
-                                   <motion.div 
-                                     key={plan.id}
-                                     initial={{ opacity: 0, y: 20 }}
-                                     animate={{ opacity: 1, y: 0 }}
-                                     transition={{ delay: idx * 0.1 }}
-                                     className="group"
-                                   >
-                                     <div className="bg-white rounded-[2.5rem] p-8 group hover:scale-[1.02] transition-all border border-gray-100 shadow-sm hover:shadow-xl hover:shadow-black/5 relative overflow-hidden flex flex-col h-full">
-                                       <div className="flex items-start justify-between mb-8">
-                                         <div className="w-14 h-14 bg-gray-50 rounded-2xl flex items-center justify-center text-2xl shadow-inner">
-                                           {plan.logo}
-                                         </div>
-                                         <div className={cn(
-                                           "px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest text-white shadow-lg",
-                                           getLabel(plan.score).class
-                                         )}>
-                                           {getLabel(plan.score).text}
-                                         </div>
-                                       </div>
+                                )}
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                                     {scoredPlans.map((plan, idx) => (
+                                       <motion.div
+                                          key={plan.id}
+                                          initial={{ opacity: 0, y: 20 }}
+                                          animate={{ opacity: 1, y: 0 }}
+                                          transition={{ delay: idx * 0.1 }}
+                                       >
+                                         <Card 
+                                           className={cn(
+                                             "p-8 cursor-pointer group transition-all relative overflow-hidden h-full flex flex-col",
+                                             selectedPlan?.id === plan.id ? "border-blue-600 ring-2 ring-blue-600/10 shadow-xl" : "hover:border-gray-200"
+                                           )}
+                                           onClick={() => {
+                                             setSelectedPlan(plan);
+                                             setIsAutoRotating(false); // Step 4: Override auto
+                                           }}
+                                         >
+                                           <>
+                                             {selectedPlan?.id === plan.id && (
+                                               <div className="absolute top-0 right-0 p-2">
+                                                 <div className="bg-blue-600 text-white p-1 rounded-bl-xl rounded-tr-xl">
+                                                   <Check size={12} />
+                                                 </div>
+                                               </div>
+                                             )}
+                                             <div className="flex items-start justify-between mb-8">
+                                               <div className="w-14 h-14 bg-gray-50 rounded-2xl flex items-center justify-center text-2xl shadow-inner">
+                                                 {plan.logo}
+                                               </div>
+                                               <div className={cn(
+                                                 "px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest text-white shadow-lg",
+                                                 getLabel(plan.score).class
+                                               )}>
+                                                 {getLabel(plan.score).text}
+                                               </div>
+                                             </div>
+                                           </>
 
                                        <div className="space-y-2 mb-6">
                                          <h4 className="text-lg font-black tracking-tight text-gray-900 group-hover:text-blue-600 transition-colors">{plan.name}</h4>
@@ -1510,15 +1603,20 @@ If the response is not in the exact format above, it is invalid.`;
                                         </div>
                                       )}
 
-                                       <Button className="w-full h-14 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl shadow-black/5 group-hover:bg-blue-600 group-hover:text-white transition-all">
+                                       <Button 
+                                         className="w-full h-14 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl shadow-black/5 group-hover:bg-blue-600 group-hover:text-white transition-all"
+                                         onClick={() => {
+                                           setDetailedPlan(plan);
+                                         }}
+                                       >
                                           View Details <ChevronRight size={14} className="ml-2" />
                                        </Button>
-                                     </div>
-                                   </motion.div>
+                                     </Card>
+                                 </motion.div>
                                  ))}
                                </div>
-                             </div>
-                           );
+                               </div>
+                             );
                         })()}
 
                         {/* Why These Plans? Section */}
@@ -1536,6 +1634,8 @@ If the response is not in the exact format above, it is invalid.`;
                              </p>
                           </div>
                         </Card>
+                          </>
+                        )}
                       </div>
                     )}
 
@@ -1791,25 +1891,55 @@ If the response is not in the exact format above, it is invalid.`;
                                 
                                 {(() => {
                                   const latestReport = reports[0];
+
+                                  // Clean conditions: parse stringified JSON, extract name strings
+                                  const cleanConditions = (latestReport?.conditions || []).slice(0, 3).map((c: any) => {
+                                    if (typeof c === 'string') {
+                                      try {
+                                        const parsed = JSON.parse(c);
+                                        return parsed.name || parsed.condition || c;
+                                      } catch {
+                                        return c;
+                                      }
+                                    }
+                                    return c?.name || c?.condition || String(c);
+                                  });
+
+                                  // Clean medications: parse stringified JSON, extract name strings
+                                  const cleanMedications = (latestReport?.medications || []).slice(0, 3).map((m: any) => {
+                                    if (typeof m === 'string') {
+                                      try {
+                                        const parsed = JSON.parse(m);
+                                        return parsed.name || parsed.title || m;
+                                      } catch {
+                                        return m;
+                                      }
+                                    }
+                                    return m?.name || m?.title || String(m);
+                                  });
+
+                                  // Clean allergies: normalize from array or comma-separated string
+                                  const cleanAllergies = Array.isArray(patientData?.allergies)
+                                    ? patientData.allergies.slice(0, 3).map((a: any) => typeof a === 'string' ? a.trim() : String(a))
+                                    : typeof patientData?.allergies === 'string' && patientData.allergies.length > 0
+                                      ? patientData.allergies.split(',').map((a: string) => a.trim()).slice(0, 3)
+                                      : ["None"];
+
                                   const qrData = {
                                     type: "CareSyncProfile",
                                     version: "1.0",
                                     id: patientData?.id,
                                     basic_info: {
-                                      name: patientData?.name,
-                                      age: patientData?.dob ? getAge(patientData.dob) : patientData?.age,
-                                      gender: patientData?.gender,
-                                      blood_group: patientData?.blood_group
+                                      name: patientData?.name || "Unknown",
+                                      age: patientData?.dob ? getAge(patientData.dob) : patientData?.age || "N/A",
+                                      gender: patientData?.gender || "N/A",
+                                      blood_group: patientData?.blood_group || "N/A"
                                     },
                                     medical_summary: {
                                       risk_level: latestReport?.risk_level || "Unknown",
-                                      conditions: (latestReport?.conditions || []).slice(0, 3).map((c: any) => 
-                                        typeof c === "string" ? c : c.name
-                                      ),
-                                      medications: (latestReport?.medications || []).slice(0, 3).map((m: any) => 
-                                        typeof m === "string" ? m : m.name
-                                      ),
-                                      allergies: Array.isArray(patientData?.allergies) ? patientData.allergies.slice(0, 3) : (patientData?.allergies || "None")
+                                      conditions: cleanConditions,
+                                      medications: cleanMedications,
+                                      allergies: cleanAllergies
                                     },
                                     emergency: {
                                       contact_name: patientData?.emergency_contact_name || "N/A",
@@ -1874,33 +2004,270 @@ If the response is not in the exact format above, it is invalid.`;
                     )}
 
                     {/* 7. Settings Tab */}
-                    {activeTab === 'settings' && (
+                    {activeTab === 'settings' && (() => {
+                      // Load settings form from patientData on first render
+                      if (!settingsLoaded && patientData) {
+                        setSettingsForm({
+                          full_name: patientData.name || '',
+                          phone_number: patientData.phone || '',
+                          address: patientData.address || '',
+                          emergency_contact_name: patientData.emergency_contact_name || '',
+                          emergency_contact_phone: patientData.emergency_contact_phone || '',
+                          blood_group: patientData.blood_group || '',
+                          allergies: Array.isArray(patientData.allergies) ? patientData.allergies.join(', ') : (patientData.allergies || ''),
+                          chronic_diseases: Array.isArray(patientData.chronic_diseases) ? patientData.chronic_diseases.join(', ') : (patientData.chronic_diseases || ''),
+                        });
+                        setSettingsLoaded(true);
+                      }
+
+                      const handleSettingsSave = async () => {
+                        if (!patientData?.id) return;
+                        setIsSavingSettings(true);
+                        try {
+                          const { error } = await supabase
+                            .from('users')
+                            .update({
+                              full_name: settingsForm.full_name,
+                              phone_number: settingsForm.phone_number,
+                              address: settingsForm.address,
+                              emergency_contact_name: settingsForm.emergency_contact_name,
+                              emergency_contact_phone: settingsForm.emergency_contact_phone,
+                              blood_group: settingsForm.blood_group,
+                              allergies: settingsForm.allergies,
+                              chronic_diseases: settingsForm.chronic_diseases,
+                            })
+                            .eq('id', patientData.id);
+
+                          if (error) {
+                            addNotification('Failed to save settings: ' + error.message);
+                          } else {
+                            // Sync local patientData state
+                            setPatientData(prev => prev ? ({
+                              ...prev,
+                              name: settingsForm.full_name,
+                              phone: settingsForm.phone_number,
+                              address: settingsForm.address,
+                              emergency_contact_name: settingsForm.emergency_contact_name,
+                              emergency_contact_phone: settingsForm.emergency_contact_phone,
+                              blood_group: settingsForm.blood_group,
+                              allergies: settingsForm.allergies,
+                              chronic_diseases: settingsForm.chronic_diseases,
+                            }) : prev);
+                            addNotification('Profile updated successfully!');
+                          }
+                        } catch (err) {
+                          addNotification('An error occurred while saving.');
+                        } finally {
+                          setIsSavingSettings(false);
+                        }
+                      };
+
+                      const inputClass = "w-full bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:bg-white focus:border-blue-200 transition-all";
+                      const labelClass = "text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 block";
+
+                      return (
                       <div className="max-w-4xl mx-auto space-y-8">
-                         <h3 className="text-3xl font-black tracking-tighter text-blue-900">Account Settings</h3>
+                         <div className="flex items-center justify-between">
+                           <div>
+                             <h3 className="text-3xl font-black tracking-tighter">Account Settings</h3>
+                             <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Manage Profile & Security</p>
+                           </div>
+                           <Button
+                             variant="primary"
+                             className="px-8"
+                             disabled={isSavingSettings}
+                             onClick={handleSettingsSave}
+                           >
+                             {isSavingSettings ? (
+                               <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving...</>
+                             ) : (
+                               <><Check size={14} /> Save Changes</>
+                             )}
+                           </Button>
+                         </div>
                          
                          <div className="space-y-6">
+                            {/* Personal Information */}
                             <Card className="p-8">
-                               <h4 className="text-xl font-black mb-6">Security & Privacy</h4>
-                               <div className="space-y-6">
-                                  {[
-                                     { label: 'Two-Factor Authentication', desc: 'Secure your medical data with 2FA.', enabled: true },
-                                     { label: 'Report Encryption', desc: 'Automatically encrypt all uploaded PDFs.', enabled: true },
-                                  ].map((item, i) => (
-                                     <div key={i} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl">
-                                        <div>
-                                           <h5 className="font-bold text-sm">{item.label}</h5>
-                                           <p className="text-xs text-gray-400 font-medium">{item.desc}</p>
-                                        </div>
-                                        <div className="flex gap-2">
-                                           <Badge variant={item.enabled ? 'success' : 'neutral'}>{item.enabled ? 'Enabled' : 'Disabled'}</Badge>
-                                        </div>
+                               <div className="flex items-center gap-3 mb-8 pb-4 border-b border-gray-50">
+                                 <div className="p-2 bg-blue-50 rounded-xl text-blue-600"><User size={18} /></div>
+                                 <h4 className="text-sm font-black uppercase tracking-widest">Personal Information</h4>
+                               </div>
+                               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                 <div>
+                                   <label className={labelClass}>Full Name</label>
+                                   <input
+                                     className={inputClass}
+                                     value={settingsForm.full_name}
+                                     onChange={(e) => setSettingsForm(prev => ({ ...prev, full_name: e.target.value }))}
+                                     placeholder="Enter your full name"
+                                   />
+                                 </div>
+                                 <div>
+                                   <label className={labelClass}>Phone Number</label>
+                                   <input
+                                     className={inputClass}
+                                     value={settingsForm.phone_number}
+                                     onChange={(e) => setSettingsForm(prev => ({ ...prev, phone_number: e.target.value }))}
+                                     placeholder="+91 XXXXX XXXXX"
+                                   />
+                                 </div>
+                                 <div className="md:col-span-2">
+                                   <label className={labelClass}>Address</label>
+                                   <input
+                                     className={inputClass}
+                                     value={settingsForm.address}
+                                     onChange={(e) => setSettingsForm(prev => ({ ...prev, address: e.target.value }))}
+                                     placeholder="Enter your address"
+                                   />
+                                 </div>
+                                 <div>
+                                   <label className={labelClass}>Blood Group</label>
+                                   <input
+                                     className={inputClass}
+                                     value={settingsForm.blood_group}
+                                     onChange={(e) => setSettingsForm(prev => ({ ...prev, blood_group: e.target.value }))}
+                                     placeholder="e.g. O+, A-, B+"
+                                   />
+                                 </div>
+                                 <div>
+                                   <label className={labelClass}>Email</label>
+                                   <div className="w-full bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 text-sm font-bold text-gray-400 cursor-not-allowed">
+                                     {patientData?.email || '--'}
+                                   </div>
+                                   <p className="text-[9px] text-gray-300 font-bold mt-1 italic">Email cannot be changed</p>
+                                 </div>
+                               </div>
+                            </Card>
+
+                            {/* Medical Details */}
+                            <Card className="p-8">
+                               <div className="flex items-center gap-3 mb-8 pb-4 border-b border-gray-50">
+                                 <div className="p-2 bg-rose-50 rounded-xl text-rose-600"><Heart size={18} /></div>
+                                 <h4 className="text-sm font-black uppercase tracking-widest">Medical Details</h4>
+                               </div>
+                               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                 <div>
+                                   <label className={labelClass}>Allergies</label>
+                                   <input
+                                     className={inputClass}
+                                     value={settingsForm.allergies}
+                                     onChange={(e) => setSettingsForm(prev => ({ ...prev, allergies: e.target.value }))}
+                                     placeholder="Comma-separated (e.g. Peanuts, Penicillin)"
+                                   />
+                                 </div>
+                                 <div>
+                                   <label className={labelClass}>Chronic Conditions</label>
+                                   <input
+                                     className={inputClass}
+                                     value={settingsForm.chronic_diseases}
+                                     onChange={(e) => setSettingsForm(prev => ({ ...prev, chronic_diseases: e.target.value }))}
+                                     placeholder="Comma-separated (e.g. Diabetes, Hypertension)"
+                                   />
+                                 </div>
+                               </div>
+                            </Card>
+
+                            {/* Emergency Contact */}
+                            <Card className="p-8 bg-gray-900 text-white border-none">
+                               <div className="flex items-center gap-3 mb-8 pb-4 border-b border-white/10">
+                                 <div className="p-2 bg-rose-500/20 rounded-xl text-rose-400"><AlertCircle size={18} /></div>
+                                 <h4 className="text-sm font-black uppercase tracking-widest">Emergency Contact</h4>
+                               </div>
+                               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                 <div>
+                                   <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 block">Contact Name</label>
+                                   <input
+                                     className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm font-bold text-white focus:outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-400 transition-all placeholder-gray-600"
+                                     value={settingsForm.emergency_contact_name}
+                                     onChange={(e) => setSettingsForm(prev => ({ ...prev, emergency_contact_name: e.target.value }))}
+                                     placeholder="Emergency contact name"
+                                   />
+                                 </div>
+                                 <div>
+                                   <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 block">Contact Phone</label>
+                                   <input
+                                     className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm font-bold text-white focus:outline-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-400 transition-all placeholder-gray-600"
+                                     value={settingsForm.emergency_contact_phone}
+                                     onChange={(e) => setSettingsForm(prev => ({ ...prev, emergency_contact_phone: e.target.value }))}
+                                     placeholder="+91 XXXXX XXXXX"
+                                   />
+                                 </div>
+                               </div>
+                            </Card>
+
+                            {/* Security & Privacy */}
+                            <Card className="p-8">
+                               <div className="flex items-center gap-3 mb-8 pb-4 border-b border-gray-50">
+                                 <div className="p-2 bg-emerald-50 rounded-xl text-emerald-600"><ShieldCheck size={18} /></div>
+                                 <h4 className="text-sm font-black uppercase tracking-widest">Security & Privacy</h4>
+                               </div>
+                               <div className="space-y-4">
+                                  <div className="flex items-center justify-between p-5 bg-gray-50 rounded-2xl group hover:bg-gray-100 transition-colors">
+                                     <div>
+                                        <h5 className="font-black text-sm">Two-Factor Authentication</h5>
+                                        <p className="text-xs text-gray-400 font-medium mt-1">Secure your medical data with an extra verification layer.</p>
                                      </div>
-                                  ))}
+                                     <button
+                                       onClick={() => {
+                                         setTwoFactorEnabled(prev => !prev);
+                                         addNotification(twoFactorEnabled ? '2FA disabled' : '2FA enabled successfully');
+                                       }}
+                                       className={cn(
+                                         "relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out",
+                                         twoFactorEnabled ? "bg-emerald-500" : "bg-gray-200"
+                                       )}
+                                     >
+                                       <span className={cn(
+                                         "pointer-events-none inline-block h-6 w-6 rounded-full bg-white shadow-lg transform ring-0 transition-transform duration-200 ease-in-out",
+                                         twoFactorEnabled ? "translate-x-5" : "translate-x-0"
+                                       )} />
+                                     </button>
+                                  </div>
+                                  <div className="flex items-center justify-between p-5 bg-gray-50 rounded-2xl group hover:bg-gray-100 transition-colors">
+                                     <div>
+                                        <h5 className="font-black text-sm">Report Encryption</h5>
+                                        <p className="text-xs text-gray-400 font-medium mt-1">Automatically encrypt all uploaded medical PDFs with AES-256.</p>
+                                     </div>
+                                     <button
+                                       onClick={() => {
+                                         setEncryptionEnabled(prev => !prev);
+                                         addNotification(encryptionEnabled ? 'Encryption disabled' : 'Encryption enabled');
+                                       }}
+                                       className={cn(
+                                         "relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out",
+                                         encryptionEnabled ? "bg-emerald-500" : "bg-gray-200"
+                                       )}
+                                     >
+                                       <span className={cn(
+                                         "pointer-events-none inline-block h-6 w-6 rounded-full bg-white shadow-lg transform ring-0 transition-transform duration-200 ease-in-out",
+                                         encryptionEnabled ? "translate-x-5" : "translate-x-0"
+                                       )} />
+                                     </button>
+                                  </div>
+                               </div>
+                            </Card>
+
+                            {/* Danger Zone */}
+                            <Card className="p-8 border-rose-100">
+                               <div className="flex items-center gap-3 mb-6 pb-4 border-b border-rose-50">
+                                 <div className="p-2 bg-rose-50 rounded-xl text-rose-600"><AlertCircle size={18} /></div>
+                                 <h4 className="text-sm font-black uppercase tracking-widest text-rose-600">Danger Zone</h4>
+                               </div>
+                               <div className="flex items-center justify-between">
+                                 <div>
+                                   <h5 className="font-black text-sm">Sign Out</h5>
+                                   <p className="text-xs text-gray-400 font-medium mt-1">Log out of your CareSync account on this device.</p>
+                                 </div>
+                                 <Button variant="danger" onClick={handleLogout} className="px-8">
+                                   <LogOut size={14} /> Log Out
+                                 </Button>
                                </div>
                             </Card>
                          </div>
                       </div>
-                    )}
+                      );
+                    })()}
                   </motion.div>
                 )}
 
@@ -2021,6 +2388,125 @@ If the response is not in the exact format above, it is invalid.`;
                     CLOSE INSIGHTS
                   </Button>
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+        {detailedPlan && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 md:p-10">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setDetailedPlan(null)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-4xl bg-white rounded-[3rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+            >
+              <div className="p-8 md:p-12 overflow-y-auto no-scrollbar">
+                 <div className="flex justify-between items-start mb-10">
+                    <div className="flex items-center gap-6">
+                       <div className="w-20 h-20 bg-gray-50 rounded-[2rem] flex items-center justify-center text-5xl shadow-inner">
+                          {detailedPlan.logo}
+                       </div>
+                       <div>
+                          <p className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mb-1">{detailedPlan.provider}</p>
+                          <h2 className="text-4xl font-black tracking-tighter">{detailedPlan.name}</h2>
+                          <div className="flex gap-2 mt-2">
+                             <Badge variant="success">{detailedPlan.badge || "AI Recommended"}</Badge>
+                             <Badge variant="primary">Claim Ratio: {detailedPlan.claim_ratio}</Badge>
+                          </div>
+                       </div>
+                    </div>
+                    <button 
+                      onClick={() => setDetailedPlan(null)}
+                      className="p-3 bg-gray-50 hover:bg-gray-100 rounded-full transition-colors"
+                    >
+                       <X size={24} />
+                    </button>
+                 </div>
+
+                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                    <div className="md:col-span-2 space-y-10">
+                       <section>
+                          <h5 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                             <Activity size={14} className="text-blue-500" /> Plan Overview
+                          </h5>
+                          <p className="text-lg font-medium text-gray-600 leading-relaxed">
+                             {detailedPlan.description}
+                          </p>
+                       </section>
+
+                       <section>
+                          <h5 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                             <ShieldCheck size={14} className="text-emerald-500" /> Core Coverage Features
+                          </h5>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                             {detailedPlan.coverage.map((c: string, i: number) => (
+                               <div key={i} className="flex items-center gap-3 p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                                  <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                                  <span className="text-sm font-bold text-gray-700">{c}</span>
+                               </div>
+                             ))}
+                          </div>
+                       </section>
+
+                       <section>
+                          <h5 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                             <X size={14} className="text-rose-500" /> Important Exclusions
+                          </h5>
+                          <div className="p-6 bg-rose-50/30 rounded-[2rem] border border-rose-100/50">
+                             <ul className="space-y-3">
+                                <li className="flex items-center gap-3 text-xs font-bold text-rose-700/70">
+                                   <div className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                                   Pre-existing diseases waiting period (up to 24 months)
+                                </li>
+                                <li className="flex items-center gap-3 text-xs font-bold text-rose-700/70">
+                                   <div className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                                   Cosmetic or aesthetic treatments
+                                </li>
+                                <li className="flex items-center gap-3 text-xs font-bold text-rose-700/70">
+                                   <div className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                                   Non-medical expenses during hospitalization
+                                </li>
+                             </ul>
+                          </div>
+                       </section>
+                    </div>
+
+                    <div className="space-y-6">
+                       <Card className="p-8 bg-blue-600 text-white border-none shadow-2xl shadow-blue-200">
+                          <p className="text-[10px] font-black text-blue-200 uppercase tracking-widest mb-2">Total Premium</p>
+                          <div className="text-4xl font-black mb-1">{detailedPlan.price}</div>
+                          <p className="text-[10px] font-bold text-blue-100 opacity-80 mb-6">Estimated for your age & profile</p>
+                          <Button className="w-full bg-white text-blue-600 hover:bg-blue-50 h-16 rounded-2xl text-[10px] font-black uppercase tracking-widest">
+                             PROCEED TO BUY
+                          </Button>
+                       </Card>
+
+                       <Card className="p-6 border-gray-100">
+                          <h6 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">Supported Conditions</h6>
+                          <div className="flex flex-wrap gap-2">
+                             {detailedPlan.conditions_supported.length > 0 ? detailedPlan.conditions_supported.map((c: string, i: number) => (
+                               <Badge key={i} variant="primary">{c}</Badge>
+                             )) : <span className="text-xs font-bold text-gray-300 italic">Standard Plan</span>}
+                          </div>
+                       </Card>
+                       
+                       <Card className="p-6 bg-emerald-50 border-emerald-100">
+                          <div className="flex items-center gap-2 text-emerald-600 font-black text-[10px] uppercase tracking-widest mb-2">
+                             <Zap size={14} fill="currentColor" /> AI Insight
+                          </div>
+                          <p className="text-xs font-medium text-emerald-700 leading-relaxed">
+                             This plan has a {detailedPlan.claim_ratio} claim settlement ratio, which is above the industry average. Highly recommended for long-term security.
+                          </p>
+                       </Card>
+                    </div>
+                 </div>
               </div>
             </motion.div>
           </div>
